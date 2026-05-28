@@ -1,4 +1,4 @@
-# app.py — Point d'entrée V3 complet
+# app.py — V4 complet
 import streamlit as st
 from auth.authentification import (connecter_utilisateur, deconnecter,
                                     inscrire_eleve, inscrire_parent,
@@ -6,6 +6,7 @@ from auth.authentification import (connecter_utilisateur, deconnecter,
                                     est_connecte)
 from utils.securite import role_actuel
 from utils.banniere import afficher_banniere_abonnement
+from models.journal import Journal
 
 st.set_page_config(
     page_title="Plateforme Éducative",
@@ -19,27 +20,24 @@ st.markdown("""
     [data-testid="stSidebar"] { background-color: #1a1a2e; }
     [data-testid="stSidebar"] * { color: #e0e0e0 !important; }
     .stButton > button[kind="primary"] {
-        background-color: #1a1a2e;
-        color: white;
-        border-radius: 8px;
-        width: 100%;
+        background-color: #1a1a2e; color: white;
+        border-radius: 8px; width: 100%;
     }
     div[data-testid="metric-container"] {
-        background: #f8f9fa;
-        border-radius: 10px;
-        padding: 1rem;
-        border: 1px solid #e0e0e0;
+        background: #f8f9fa; border-radius: 10px;
+        padding: 1rem; border: 1px solid #e0e0e0;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ── Session state ──────────────────────────────────────────────────
-if "utilisateur"    not in st.session_state: st.session_state.utilisateur    = None
-if "page_auth"      not in st.session_state: st.session_state.page_auth      = "connexion"
-if "cours_actif"    not in st.session_state: st.session_state.cours_actif    = None
-if "cours_eleve"    not in st.session_state: st.session_state.cours_eleve    = None
-if "session_visio_active" not in st.session_state: st.session_state.session_visio_active = None
-if "forfait_choisi" not in st.session_state: st.session_state.forfait_choisi = None
+for key in ["utilisateur","page_auth","cours_actif","cours_eleve",
+            "session_visio_active","forfait_choisi","page_paiement",
+            "reunion_prof"]:
+    if key not in st.session_state:
+        st.session_state[key] = None if key == "utilisateur" else (
+            "connexion" if key == "page_auth" else False if key == "page_paiement" else None
+        )
 
 
 # ── Sidebar ────────────────────────────────────────────────────────
@@ -55,30 +53,27 @@ def afficher_sidebar():
                 "admin_etablissement":  "🏫",
                 "admin":                "🛡️",
                 "professeur":           "👨‍🏫",
-                "professeur_individuel":"👨‍🏫",
                 "eleve":                "🎓",
                 "parent":               "👨‍👩‍👧",
             }
-            icone = icones.get(u.get("role"), "👤")
-            st.markdown(f"**{icone} {u.get('prenom')} {u.get('nom')}**")
+            icone = icones.get(u.get("role",""), "👤")
+            st.markdown(f"**{icone} {u.get('prenom','')} {u.get('nom','')}**")
             st.caption(f"Rôle : {u.get('role','—')}")
             st.divider()
 
-            # Paiement (seulement pour profs et établissements)
-            if u.get("role") in ["professeur", "professeur_individuel", "admin_etablissement"]:
+            if u.get("role") in ["professeur","admin_etablissement"]:
                 if st.button("💳 Abonnement & Paiement", use_container_width=True):
-                    st.session_state["page_paiement"] = True
+                    st.session_state.page_paiement = True
                     st.rerun()
 
-            # Changer mot de passe
             with st.expander("🔑 Changer mon mot de passe"):
-                nouveau = st.text_input("Nouveau mot de passe", type="password", key="new_mdp")
+                nouveau   = st.text_input("Nouveau", type="password", key="new_mdp")
                 confirmer = st.text_input("Confirmer", type="password", key="conf_mdp")
                 if st.button("Changer", key="btn_mdp"):
                     if not nouveau or not confirmer:
                         st.warning("Remplissez les deux champs.")
                     elif nouveau != confirmer:
-                        st.error("Les mots de passe ne correspondent pas.")
+                        st.error("Mots de passe différents.")
                     elif len(nouveau) < 6:
                         st.error("Minimum 6 caractères.")
                     else:
@@ -95,12 +90,10 @@ def afficher_sidebar():
 
 # ── Page connexion ─────────────────────────────────────────────────
 def page_connexion():
-    col_g, col_c, col_d = st.columns([1, 2, 1])
+    _, col_c, _ = st.columns([1, 2, 1])
     with col_c:
         st.markdown("## 🎓 Bienvenue sur la plateforme éducative")
-        st.markdown("Connectez-vous pour accéder à votre espace.")
         st.divider()
-
         email = st.text_input("📧 Email", placeholder="votre@email.com")
         mdp   = st.text_input("🔒 Mot de passe", type="password")
 
@@ -132,15 +125,15 @@ def page_connexion():
                 st.rerun()
 
 
-# ── Page inscription élève ─────────────────────────────────────────
+# ── Inscription élève ──────────────────────────────────────────────
 def page_inscription_eleve():
-    col_g, col_c, col_d = st.columns([1, 2, 1])
+    _, col_c, _ = st.columns([1, 2, 1])
     with col_c:
         st.markdown("## 🎓 Créer un compte élève")
-        st.caption("Vous avez besoin du code de votre professeur ou de votre établissement.")
+        st.caption("Vous avez besoin du code de votre professeur ou établissement.")
         st.divider()
 
-        CLASSES = ["6e", "5e", "4e", "1ère", "Tle"]
+        CLASSES = ["6e","5e","4e","1ère","Tle"]
         col1, col2 = st.columns(2)
         with col1:
             prenom = st.text_input("Prénom")
@@ -151,8 +144,8 @@ def page_inscription_eleve():
             telephone = st.text_input("Téléphone", placeholder="+237600000000")
             code      = st.text_input("🔑 Code (professeur ou établissement)")
 
-        mdp      = st.text_input("Mot de passe", type="password")
-        confirmer = st.text_input("Confirmer le mot de passe", type="password")
+        mdp       = st.text_input("Mot de passe", type="password")
+        confirmer = st.text_input("Confirmer", type="password")
 
         if st.button("✅ Créer mon compte", type="primary", use_container_width=True):
             if not all([prenom, nom, email, mdp, code]):
@@ -163,7 +156,8 @@ def page_inscription_eleve():
                 st.error("❌ Minimum 6 caractères.")
             else:
                 with st.spinner("Création..."):
-                    ok, msg = inscrire_eleve(prenom, nom, email, mdp, telephone, classe, code)
+                    ok, msg = inscrire_eleve(prenom, nom, email, mdp,
+                                             telephone, classe, code)
                 if ok:
                     st.success(f"✅ {msg}")
                     st.session_state.page_auth = "connexion"
@@ -176,12 +170,12 @@ def page_inscription_eleve():
             st.rerun()
 
 
-# ── Page inscription parent ────────────────────────────────────────
+# ── Inscription parent ─────────────────────────────────────────────
 def page_inscription_parent():
-    col_g, col_c, col_d = st.columns([1, 2, 1])
+    _, col_c, _ = st.columns([1, 2, 1])
     with col_c:
         st.markdown("## 👨‍👩‍👧 Créer un compte parent")
-        st.caption("Vous avez besoin du code fourni par l'établissement de votre enfant.")
+        st.caption("Vous avez besoin du code de l'établissement de votre enfant.")
         st.divider()
 
         col1, col2 = st.columns(2)
@@ -192,9 +186,9 @@ def page_inscription_parent():
             nom       = st.text_input("Nom")
             telephone = st.text_input("Téléphone", placeholder="+237600000000")
 
-        code      = st.text_input("🔑 Code de l'établissement de votre enfant")
+        code      = st.text_input("🔑 Code de l'établissement")
         mdp       = st.text_input("Mot de passe", type="password")
-        confirmer = st.text_input("Confirmer le mot de passe", type="password")
+        confirmer = st.text_input("Confirmer", type="password")
 
         if st.button("✅ Créer mon compte", type="primary", use_container_width=True):
             if not all([prenom, nom, email, mdp, code]):
@@ -205,7 +199,8 @@ def page_inscription_parent():
                 st.error("❌ Minimum 6 caractères.")
             else:
                 with st.spinner("Création..."):
-                    ok, msg = inscrire_parent(prenom, nom, email, mdp, telephone, code)
+                    ok, msg = inscrire_parent(prenom, nom, email, mdp,
+                                              telephone, code)
                 if ok:
                     st.success(f"✅ {msg}")
                     st.session_state.page_auth = "connexion"
@@ -218,9 +213,9 @@ def page_inscription_parent():
             st.rerun()
 
 
-# ── Page reset mot de passe ────────────────────────────────────────
+# ── Reset mot de passe ─────────────────────────────────────────────
 def page_reset():
-    col_g, col_c, col_d = st.columns([1, 2, 1])
+    _, col_c, _ = st.columns([1, 2, 1])
     with col_c:
         st.markdown("## 🔑 Mot de passe oublié")
         email = st.text_input("📧 Votre email")
@@ -253,7 +248,7 @@ def main():
 
     utilisateur = st.session_state.utilisateur
 
-    # Bannière abonnement permanente
+    # Bannière abonnement
     abonnement_valide = afficher_banniere_abonnement(utilisateur)
 
     # Page paiement
@@ -265,9 +260,9 @@ def main():
         afficher_vue_paiement()
         return
 
-    # Si abonnement suspendu — afficher uniquement la page paiement
+    # Compte suspendu
     if not abonnement_valide:
-        st.warning("⚠️ Votre compte est suspendu. Renouvelez votre abonnement pour continuer.")
+        st.warning("⚠️ Votre compte est suspendu. Renouvelez votre abonnement.")
         from vues.vue_paiement import afficher_vue_paiement
         afficher_vue_paiement()
         return
@@ -277,29 +272,23 @@ def main():
     if role == "super_admin":
         from vues.vue_superadmin import afficher_vue_superadmin
         afficher_vue_superadmin()
-
     elif role == "admin_etablissement":
         from vues.vue_admin_etablissement import afficher_vue_admin_etablissement
         afficher_vue_admin_etablissement()
-
     elif role == "admin":
         from vues.vue_admin import afficher_vue_admin
         afficher_vue_admin()
-
-    elif role in ["professeur", "professeur_individuel"]:
+    elif role == "professeur":
         from vues.vue_professeur import afficher_vue_professeur
         afficher_vue_professeur()
-
     elif role == "eleve":
         from vues.vue_eleve import afficher_vue_eleve
         afficher_vue_eleve()
-
     elif role == "parent":
         from vues.vue_parent import afficher_vue_parent
         afficher_vue_parent()
-
     else:
-        st.error("Rôle inconnu. Contactez l'administrateur.")
+        st.error("Rôle inconnu.")
         if st.button("Se déconnecter"):
             deconnecter()
             st.rerun()

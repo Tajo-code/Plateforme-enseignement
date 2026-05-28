@@ -2,3 +2,4 @@ streamlit
 firebase-admin
 python-dotenv
 requests
+openpyxl
