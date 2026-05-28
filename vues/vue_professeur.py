@@ -51,20 +51,20 @@ def afficher_vue_professeur():
 
     st.divider()
 
-    onglets = ["📂 Exercices", "📥 Réception", "✏️ Corriger",
-               "✅ Publier", "📹 Cours en ligne",
-               "🤝 Réunions parents", f"💬 Messages ({nb_msg})", "👥 Élèves"]
+    onglets = ["📂 Exercices", "🎯 Créer QCM", "📥 Réception", "✏️ Corriger",
+           "✅ Publier", "📹 Cours en ligne",
+           "🤝 Réunions parents", f"💬 Messages ({nb_msg})", "👥 Élèves"]
 
     tabs = st.tabs(onglets)
-
     with tabs[0]: _onglet_exercices(utilisateur, etab_id)
-    with tabs[1]: _onglet_reception(utilisateur)
-    with tabs[2]: _onglet_correction(utilisateur)
-    with tabs[3]: _onglet_publication(utilisateur)
-    with tabs[4]: _onglet_visio_cours(utilisateur, etab_id)
-    with tabs[5]: _onglet_visio_parents(utilisateur, etab_id)
-    with tabs[6]: _onglet_messages(utilisateur, etab_id)
-    with tabs[7]: _onglet_eleves(utilisateur)
+    with tabs[1]: _onglet_qcm(utilisateur)  # nouveau
+    with tabs[2]: _onglet_reception(utilisateur)
+    with tabs[3]: _onglet_correction(utilisateur)
+    with tabs[4]: _onglet_publication(utilisateur)
+    with tabs[5]: _onglet_visio_cours(utilisateur, etab_id)
+    with tabs[6]: _onglet_visio_parents(utilisateur, etab_id)
+    with tabs[7]: _onglet_messages(utilisateur, etab_id)
+    with tabs[8]: _onglet_eleves(utilisateur)
 
 
 # ── ONGLET 1 : Exercices ──────────────────────────────────────────
@@ -399,3 +399,85 @@ def _onglet_eleves(utilisateur: dict):
                 for mat, dl in diffi.items():
                     if dl:
                         st.markdown(f"- **{mat}** : {', '.join(dl[:3])}")
+
+
+def _onglet_qcm(utilisateur: dict):
+    st.subheader("🎯 Créer un exercice QCM adaptatif")
+    st.caption("Ces exercices seront proposés automatiquement aux élèves selon leurs difficultés.")
+
+    prof_id  = utilisateur["uid"]
+    matieres = utilisateur.get("matieres", [])
+    classes  = ["6e","5e","4e","1ère","Tle"]
+
+    col1, col2 = st.columns(2)
+    with col1:
+        classe  = st.selectbox("Classe", classes, key="qcm_classe")
+    with col2:
+        matiere = st.selectbox("Matière", matieres, key="qcm_matiere") if matieres else st.text_input("Matière", key="qcm_matiere_txt")
+
+    titre = st.text_input("Titre du QCM", key="qcm_titre",
+                           placeholder="Ex: QCM Orthographe 6e")
+
+    st.divider()
+    st.markdown("**Questions du QCM**")
+    st.caption("Ajoutez les questions une par une.")
+
+    if "qcm_questions" not in st.session_state:
+        st.session_state.qcm_questions = []
+
+    # Ajouter une question
+    with st.expander("➕ Ajouter une question"):
+        question_txt  = st.text_input("Question", key="q_txt")
+        difficulte    = st.text_input("Difficulté associée",
+                                       placeholder="Ex: Accord du participe passé",
+                                       key="q_diff")
+        nb_choix = st.number_input("Nombre de choix", 2, 4, 3, key="q_nb")
+        choix = []
+        for i in range(int(nb_choix)):
+            c = st.text_input(f"Choix {i+1}", key=f"q_c{i}")
+            choix.append(c)
+        bonne_reponse = st.selectbox("Bonne réponse", choix if choix else [""], key="q_br")
+
+        if st.button("➕ Ajouter cette question", key="btn_add_q"):
+            if question_txt and bonne_reponse:
+                st.session_state.qcm_questions.append({
+                    "id":            str(uuid.uuid4()),
+                    "question":      question_txt,
+                    "choix":         [c for c in choix if c],
+                    "bonne_reponse": bonne_reponse,
+                    "difficulte":    difficulte,
+                })
+                st.success(f"✅ Question ajoutée ! ({len(st.session_state.qcm_questions)} au total)")
+                st.rerun()
+
+    # Afficher les questions ajoutées
+    if st.session_state.qcm_questions:
+        st.markdown(f"**{len(st.session_state.qcm_questions)} question(s) :**")
+        for i, q in enumerate(st.session_state.qcm_questions):
+            st.markdown(f"**{i+1}.** {q['question']} — ✅ {q['bonne_reponse']}")
+
+        if st.button("🚀 Publier le QCM", type="primary", key="btn_pub_qcm"):
+            if not titre:
+                st.warning("⚠️ Donnez un titre au QCM.")
+            else:
+                from models.travail import ExerciceQCM
+                qcm = ExerciceQCM(
+                    titre=titre,
+                    matiere=matiere,
+                    classe=classe,
+                    prof_id=prof_id,
+                    questions=st.session_state.qcm_questions,
+                )
+                qcm.sauvegarder()
+                st.session_state.qcm_questions = []
+                Journal.enregistrer(prof_id,
+                                    f"{utilisateur['nom']} {utilisateur['prenom']}",
+                                    "professeur", "exercice_publie",
+                                    f"QCM: {titre} — {classe} — {matiere}")
+                st.success(f"✅ QCM publié ! Il sera proposé automatiquement aux élèves en difficulté.")
+                st.balloons()
+                st.rerun()
+
+        if st.button("🗑️ Effacer toutes les questions", key="btn_clear_q"):
+            st.session_state.qcm_questions = []
+            st.rerun()
