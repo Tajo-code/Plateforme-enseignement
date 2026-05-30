@@ -7,6 +7,7 @@ from auth.authentification import (connecter_utilisateur, deconnecter,
 from utils.securite import role_actuel
 from utils.banniere import afficher_banniere_abonnement
 from models.journal import Journal
+import time
 
 st.set_page_config(
     page_title="Plateforme Éducative",
@@ -86,6 +87,15 @@ def afficher_sidebar():
                 st.rerun()
         else:
             st.caption("Connectez-vous pour accéder à la plateforme.")
+
+    # Rafraichissement automatiquement toutes les 30 secondes
+    if est_connecte():
+        if "last_refresh" not in st.session_state:
+            st.session_state.last_refresh = time.time()
+        if time.time() - st.session_state.last_refresh > 30:
+            st.session_state.last_refresh = time.time()
+            st.rerun()
+
 
 
 # ── Page connexion ─────────────────────────────────────────────────

@@ -39,7 +39,7 @@ def afficher_vue_eleve():
 
     st.title(f"🎓 Bonjour, {utilisateur['prenom']} !")
     st.caption(f"Classe : {utilisateur['classe']}  •  {statut_prof}")
-
+    
     # Cours en direct
     for pid in prof_ids:
         cours_actifs = get_sessions_actives(prof_id=pid)
@@ -83,6 +83,23 @@ def _onglet_exercices(utilisateur: dict, prof_ids: list, etab_ids: list):
         for ex in exos:
             if not any(x["id"] == ex["id"] for x in tous_exercices):
                 tous_exercices.append(ex)
+    
+    # chercher aussi les QCM publiés
+    for pid in prof_ids:
+        qcms = get_db().collection("exercices_qcm")\
+            .where("prof_ids", "==",pid)\
+            .where("classe", "==",classe)\
+            .stream()
+        for q in qcms:
+            ex = {"id":q.id, **q.to_dict()}
+            ex["titre"]     = ex.get("titre", "QCM")
+            ex["format"]    = "QCM"
+            ex["consignes"] = "repondez à toutes les questions"
+            ex["contenu"]   = ""
+            ex["est_qcm"]   = True
+            if not any(x["id"] == ex["id"] for x in tous_exercices):
+                tous_exercices.append(ex)
+
 
     if not tous_exercices:
         st.info("📭 Aucun exercice disponible pour le moment.")
@@ -129,6 +146,31 @@ def _afficher_liste_exercices(exercices: list, utilisateur: dict):
 
             st.markdown(f"**📅 Date limite :** {ex.get('date_limite','—')}")
             st.divider()
+       # si c'est un QCM, afficher les questions directement
+            if ex.get("est_qcm"):
+                questions = ex.get("questions", [])
+                reponses = {}
+                for i, q in enumerate(questions):
+                    st.markdown(f"**{i+1}. {q['question']}**")
+                    rep = st.radio("", q.get("choix", []), 
+                                   key=f"qcm_ex_{ex['id']}_{i}", index=None)
+                    if rep:
+                        reponses[q.get("id", str(i))] = rep
+                if st.button("Valider le QCM", key=f"val_qcm_{ex['id']}", type="primary"):
+                    if len(reponses) < len(questions):
+                        st.warning("Répondez à toutes les questions.")
+                    else:
+                        from models.travail import ExerciceQCM
+                        resultat = ExerciceQCM.corriger_automatiquement(ex["id"], utilisateur["uid"], reponses)
+                        note = resultat["note"]
+                        c = "green" if note >= 10 else "red"
+                        st.markdown(f"### : {c}[{note}/20]")
+                        st.markdown(f"**{resultat['correctes']}/{resultat['total']}** correctes")
+                        if resultat["difficultes"]:
+                            st.warning(f"A retravailler : {','.join(resultat['difficultes'])}")
+                        else:
+                            st.success("Parfait")
+                return # Ne pas afficher le formulaire de soumission pour un QCM
             st.markdown("**✏️ Soumettre votre réponse :**")
 
             prof_id = ex.get("prof_id") or utilisateur.get("professeur_id","")
@@ -140,6 +182,7 @@ def _afficher_liste_exercices(exercices: list, utilisateur: dict):
                 contenu = st.text_area("Votre réponse", height=250,
                                         key=f"rep_{ex['id']}",
                                         placeholder="Rédigez votre réponse ici...")
+
                 if st.button("📤 Soumettre", type="primary", key=f"sub_{ex['id']}"):
                     if not contenu.strip():
                         st.warning("⚠️ Écrivez votre réponse.")
@@ -160,27 +203,39 @@ def _afficher_liste_exercices(exercices: list, utilisateur: dict):
                         st.success("✅ Travail soumis !")
             else:
                 fichier = st.file_uploader("Fichier",
-                                            type=["pdf","docx","txt","png","jpg"],
-                                            key=f"file_{ex['id']}")
-                if fichier and st.button("📤 Soumettre", type="primary",
-                                          key=f"fsub_{ex['id']}"):
-                    travail = Travail(
-                        eleve_id=utilisateur["uid"],
-                        eleve_nom=f"{utilisateur['nom']} {utilisateur['prenom']}",
-                        prof_id=prof_id, classe=classe,
-                        matiere=ex.get("matiere",""),
-                        discipline=ex.get("titre",""),
-                        format_travail=ex.get("format","Devoir individuel"),
-                    )
-                    try:
-                        travail.soumettre_fichier(fichier.read(), fichier.name)
-                        Journal.enregistrer(utilisateur["uid"],
-                                            f"{utilisateur['nom']} {utilisateur['prenom']}",
-                                            "eleve", "devoir_soumis",
-                                            f"Fichier: {fichier.name}")
-                        st.success("✅ Fichier soumis !")
-                    except Exception:
-                        st.error("❌ Erreur upload. Essayez d'écrire votre réponse.")
+                            type=["pdf","docx","txt","png","jpg"],
+                            key=f"file_{ex['id']}")
+
+                if fichier is not None:
+                    st.session_state[f"fichier_eleve_{ex['id']}"] = {
+                        "bytes": fichier.getvalue(),
+                        "nom":   fichier.name,
+                    }
+
+                if st.session_state.get(f"fichier_eleve_{ex['id']}"):
+                    f_data = st.session_state[f"fichier_eleve_{ex['id']}"]
+                    st.info(f"📎 Fichier prêt : {f_data['nom']}")
+    
+                    if st.button("📤 Soumettre", type="primary", key=f"fsub_{ex['id']}"):
+                        travail = Travail(
+                            eleve_id=utilisateur["uid"],
+                            eleve_nom=f"{utilisateur['nom']} {utilisateur['prenom']}",
+                            prof_id=prof_id, classe=classe,
+                            matiere=ex.get("matiere",""),
+                            discipline=ex.get("titre",""),
+                            format_travail=ex.get("format","Devoir individuel"),
+                        )
+                        try:
+                            travail.soumettre_fichier(f_data["bytes"], f_data["nom"])
+                            st.session_state.pop(f"fichier_eleve_{ex['id']}", None)
+                            Journal.enregistrer(utilisateur["uid"],
+                                        f"{utilisateur['nom']} {utilisateur['prenom']}",
+                                        "eleve", "devoir_soumis",
+                                        f"Fichier: {f_data['nom']}")
+                            st.success("✅ Fichier soumis !")
+                            st.rerun()
+                        except Exception:
+                            st.error("❌ Erreur upload.")
 
 
 # ── ONGLET 2 : Difficultés ────────────────────────────────────────
@@ -261,6 +316,12 @@ def _onglet_travaux(utilisateur: dict):
             if t.get("fichier_url"):
                 st.markdown(f"[📎 Voir le fichier]({t['fichier_url']})")
             st.divider()
+            # Suppression uniquement si pas encore corrigé
+            if statut == "soumis":
+                if st.button("🗑️ Retirer ce travail", key=f"del_t_{t['id']}"):
+                    get_db().collection("travaux").document(t["id"]).delete()
+                    st.success("Travail retiré.")
+                    st.rerun()
             if statut == "publié":
                 st.markdown("### 📝 Correction")
                 note = t.get("note")

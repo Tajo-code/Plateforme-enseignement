@@ -64,12 +64,10 @@ def afficher_visio(nom_salle: str, nom_utilisateur: str,
 
 
 def creer_session_visio(organisateur_id: str, titre: str,
-                         type_session: str, etablissement_id: str = None) -> dict:
-    """
-    Crée une session de visioconférence et la sauvegarde dans Firestore.
-    type_session: 'cours' | 'reunion_parents' | 'reunion_profs'
-    """
+                         type_session: str, etablissement_id: str = None,
+                         envoyer_lien: bool = True) -> dict:
     from config import get_db
+    from models.message import Message
     import datetime, uuid
 
     nom_salle = generer_salle(type_session)
@@ -85,6 +83,44 @@ def creer_session_visio(organisateur_id: str, titre: str,
         "lien":             f"https://meet.jit.si/{nom_salle}",
     }
     get_db().collection("sessions_visio").add(session)
+
+    # Envoyer le lien automatiquement aux participants
+    if envoyer_lien and etablissement_id:
+        if type_session == "cours":
+            # Envoyer aux élèves de l'établissement
+            destinataires = list(get_db().collection("users")
+                                 .where("etablissement_id","==",etablissement_id)
+                                 .where("role","==","eleve").stream())
+        elif type_session == "reunion_parents":
+            # Envoyer aux parents ET professeurs
+            parents = list(get_db().collection("users")
+                           .where("etablissement_id","==",etablissement_id)
+                           .where("role","==","parent").stream())
+            profs   = list(get_db().collection("users")
+                           .where("etablissement_id","==",etablissement_id)
+                           .where("role","==","professeur").stream())
+            destinataires = parents + profs
+        else:
+            destinataires = []
+
+        # Récupérer le nom de l'organisateur
+        org_doc = get_db().collection("users").document(organisateur_id).get()
+        org_nom = "Administration"
+        if org_doc.exists:
+            d = org_doc.to_dict()
+            org_nom = f"{d.get('prenom','')} {d.get('nom','')}"
+
+        for dest in destinataires:
+            msg = Message(
+                expediteur_id   = organisateur_id,
+                expediteur_nom  = org_nom,
+                destinataire_id = dest.id,
+                sujet           = f"📹 {titre} — Rejoignez maintenant !",
+                contenu         = f"Une session a été lancée.\n\n🔗 Lien : {session['lien']}\n\nCliquez sur le lien ou rejoignez depuis l'onglet 'Cours en ligne'.",
+                etablissement_id= etablissement_id,
+            )
+            msg.envoyer()
+
     return session
 
 

@@ -100,44 +100,91 @@ def _onglet_exercices(utilisateur: dict, etab_id: str):
                                 placeholder="Écrivez votre exercice ici...")
 
     if type_contenu in ["Uploader un fichier", "Les deux"]:
-        fichier = st.file_uploader("📎 Fichier exercice",
-                                    type=["pdf","docx","doc","txt","png","jpg"])
+        fichier = st.file_uploader(
+            "📎 Fichier exercice",
+            type=["pdf","docx","doc","txt","png","jpg"],
+            key=f"upload_ex_{prof_id}"
+        )
+    
+        # Lire et stocker IMMÉDIATEMENT dans session_state
+        if fichier is not None:
+            bytes_data = fichier.getvalue()  # getvalue() au lieu de read()
+            st.session_state["fichier_prof_bytes"] = bytes_data
+            st.session_state["fichier_prof_nom"]   = fichier.name
+    
+        # Afficher confirmation si fichier en attente
+        if st.session_state.get("fichier_prof_nom"):
+            st.success(f"📎 En attente : **{st.session_state['fichier_prof_nom']}**")
         if fichier:
             try:
-                bucket  = get_bucket()
-                chemin  = f"exercices/{prof_id}/{classe}/{matiere}/{fichier.name}"
-                blob    = bucket.blob(chemin)
-                blob.upload_from_string(fichier.read(), content_type="application/octet-stream")
-                blob.make_public()
-                fichier_url = blob.public_url
+                from utils.cloudinary_upload import uploader_fichier
+                dossier     = f"exercices/{prof_id}/{classe}/{matiere}"
+                fichier_url = uploader_fichier(fichier.getvalue(), fichier.name, dossier)
                 st.success(f"✅ Fichier prêt : {fichier.name}")
-            except Exception:
-                st.warning("⚠️ Upload fichier indisponible. Utilisez 'Rédiger ici'.")
+            except Exception as e:
+                st.warning(f"⚠️ Erreur upload : {e}")
+                
 
     if st.button("🚀 Publier l'exercice", type="primary"):
         if not titre or not consignes:
             st.warning("⚠️ Titre et consignes obligatoires.")
             return
+
+        fichier_url = ""
+        if (st.session_state.get("fichier_prof_bytes") and
+                type_contenu in ["Uploader un fichier", "Les deux"]):
+            try:
+                from utils.cloudinary_upload import uploader_fichier
+                fichier_url = uploader_fichier(
+                    st.session_state["fichier_prof_bytes"],
+                    st.session_state["fichier_prof_nom"],
+                    f"exercices/{prof_id}/{classe}/{matiere}"
+                )
+            except Exception as e:
+                st.warning(f"⚠️ Erreur upload : {e}")
+
         exercice = {
-            "id":            str(uuid.uuid4()),
-            "prof_id":       prof_id,
+            "id":             str(uuid.uuid4()),
+            "prof_id":        prof_id,
             "etablissement_id": etab_id,
-            "classe":        classe,
-            "matiere":       matiere,
-            "titre":         titre,
-            "consignes":     consignes,
-            "format":        format_ex,
-            "date_limite":   str(date_lim),
-            "contenu":       contenu,
-            "fichier_url":   fichier_url,
-            "date_creation": datetime.datetime.now().isoformat(),
+            "classe":         classe,
+            "matiere":        matiere,
+            "titre":          titre,
+            "consignes":      consignes,
+            "format":         format_ex,
+            "date_limite":    str(date_lim),
+            "contenu":        contenu,
+            "fichier_url":    fichier_url,
+            "date_creation":  datetime.datetime.now().isoformat(),
         }
         get_db().collection("exercices_publies").add(exercice)
-        Journal.enregistrer(prof_id, f"{utilisateur['nom']} {utilisateur['prenom']}",
-                            "professeur", "exercice_publie",
-                            f"{titre} — {classe} — {matiere}")
-        st.success(f"✅ Exercice publié pour la classe {classe} !")
+
+        # Nettoyer session
+        for k in ["fichier_prof_bytes","fichier_prof_nom"]:
+            st.session_state.pop(k, None)
+
+        st.success("✅ Exercice publié !")
         st.balloons()
+        st.rerun()
+        exercices = Professeur.get_exercices_publies(prof_id)
+        exercices = sorted(exercices, key=lambda x: x.get("date_creation",""), reverse=True)
+
+        if not exercices:
+            st.info("Aucun exercice publié.")
+        else:
+            for ex in exercices:
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.markdown(f"📌 **{ex.get('titre','?')}** — {ex.get('classe','?')} | {ex.get('matiere','?')} | {ex.get('date_creation','')[:10]}")
+                with col2:
+                    if st.button("🗑️", key=f"del_ex_{ex['id']}",
+                         help="Supprimer cet exercice"):
+                        get_db().collection("exercices_publies").document(ex["id"]).delete()
+                        st.success("Exercice supprimé.")
+                        st.rerun()
+        st.balloons()
+
+
 
 
 # ── ONGLET 2 : Boîte de réception ────────────────────────────────
@@ -339,6 +386,9 @@ def _onglet_messages(utilisateur: dict, etab_id: str):
                 st.markdown(m.get("contenu",""))
                 if not m.get("lu"):
                     Message.marquer_lu(m["id"])
+                if st.button("🗑️ Supprimer", key=f"del_msg_p_{m['id']}"):
+                    Message.supprimer(m["id"])
+                    st.rerun()
 
     with col2:
         st.markdown("**📤 Envoyer à l'administration**")

@@ -55,6 +55,10 @@ class Message:
         return sorted(tous, key=lambda x: x.get("date_envoi", ""), reverse=True)
 
     @staticmethod
+    def supprimer(message_id: str) -> None:
+        _db().collection("messages").document(message_id).delete()
+
+    @staticmethod
     def get_envoyes(expediteur_id: str) -> list[dict]:
         docs = (
             _db().collection("messages")

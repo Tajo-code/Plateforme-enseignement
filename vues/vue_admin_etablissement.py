@@ -34,6 +34,11 @@ def afficher_vue_admin_etablissement():
     col3.metric("👨‍👩‍👧 Parents",     len(parents))
     col4.metric("💬 Non lus",      nb_non_lus)
 
+    col_r, = st.colimns([1, 5])
+    with col_r:
+        if st.button("rafraichier", key="refresh_admin_etablissement"):
+            st.rerun()
+
     if etab:
         st.info(f"🔑 Code d'invitation de l'établissement : **{etab.get('code_invitation','—')}** — Partagez ce code aux professeurs, élèves et parents.")
 
@@ -113,6 +118,9 @@ def _onglet_messages(utilisateur: dict, etab_id: str):
                 st.markdown(f"**Message :** {m.get('contenu','')}")
                 if not m.get("lu"):
                     Message.marquer_lu(m["id"])
+                if st.button("🗑️ Supprimer", key=f"del_msg_a_{m['id']}"):
+                    Message.supprimer(m["id"])
+                    st.rerun()
 
     with col2:
         st.markdown("**📤 Envoyer un message**")

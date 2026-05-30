@@ -45,15 +45,15 @@ class Travail:
         self.sauvegarder()
 
     def soumettre_fichier(self, fichier_bytes: bytes, nom_fichier: str) -> str:
-        bucket = get_bucket()
-        chemin = f"travaux/{self.prof_id}/{self.classe}/{self.eleve_id}/{self.id}_{nom_fichier}"
-        blob = bucket.blob(chemin)
-        blob.upload_from_string(fichier_bytes, content_type="application/octet-stream")
-        blob.make_public()
-        self.fichier_url = blob.public_url
-        self.nom_fichier = nom_fichier
-        self.sauvegarder()
-        return self.fichier_url
+        try:
+            from utils.cloudinary_upload import uploader_fichier
+            dossier = f"travaux/{self.prof_id}/{self.classe}/{self.eleve_id}"
+            self.fichier_url = uploader_fichier(fichier_bytes, nom_fichier, dossier)
+            self.nom_fichier = nom_fichier
+            self.sauvegarder()
+            return self.fichier_url
+        except Exception as e:
+            raise Exception(f"Erreur upload : {str(e)}")
 
     @staticmethod
     def corriger(travail_id: str, note: float, remarques: str) -> None:

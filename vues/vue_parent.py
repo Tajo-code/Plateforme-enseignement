@@ -34,6 +34,11 @@ def afficher_vue_parent():
         _onglet_reunions(utilisateur, etab_id)
     with onglet4:
         _onglet_compte(utilisateur)
+    
+    col_r, = st.colimns([1, 5])
+    with col_r:
+        if st.button("rafraichier", key="refresh_parent"):
+            st.rerun()
 
 
 # ── ONGLET 1 : Mes enfants ────────────────────────────────────────
@@ -98,6 +103,9 @@ def _onglet_messages(utilisateur: dict, etab_id: str):
                     st.markdown(f"**Message :** {m.get('contenu','')}")
                     if not m.get("lu"):
                         Message.marquer_lu(m["id"])
+                    if st.button("🗑️ Supprimer", key=f"del_msg_par_{m['id']}"):
+                        Message.supprimer(m["id"])
+                        st.rerun()
 
     with col2:
         st.markdown("**📤 Envoyer un message à l'administration**")
