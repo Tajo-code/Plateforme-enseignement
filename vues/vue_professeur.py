@@ -103,14 +103,15 @@ def _onglet_exercices(utilisateur: dict, etab_id: str):
         fichier = st.file_uploader(
             "📎 Fichier exercice",
             type=["pdf","docx","doc","txt","png","jpg"],
-            key=f"upload_ex_{prof_id}"
+            key=f"upload_ex_{prof_id}",
+            accept_multiple_files=False
         )
     
         # Lire et stocker IMMÉDIATEMENT dans session_state
         if fichier is not None:
-            bytes_data = fichier.getvalue()  # getvalue() au lieu de read()
-            st.session_state["fichier_prof_bytes"] = bytes_data
+            st.session_state["fichier_prof_bytes"] = fichier.getvalue()
             st.session_state["fichier_prof_nom"]   = fichier.name
+            st.session_state["fichier_prof_pret"]  = True
     
         # Afficher confirmation si fichier en attente
         if st.session_state.get("fichier_prof_nom"):
